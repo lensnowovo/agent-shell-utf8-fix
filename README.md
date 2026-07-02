@@ -1,6 +1,6 @@
 # Agent Shell UTF-8 Fix
 
-Fix Chinese / UTF-8 encoding issues when using Codex, Claude Code, Cursor, GLM or other coding agents on Windows PowerShell.
+Fix Chinese / UTF-8 encoding issues and common Windows PowerShell command traps when using Codex, Claude Code, Cursor, GLM or other coding agents.
 
 If your agent keeps saying things like:
 
@@ -8,6 +8,7 @@ If your agent keeps saying things like:
 - “I switched to Unicode escapes”
 - “Get-Content shows garbled Chinese”
 - “Chinese text becomes `??` when piped to Node or Python”
+- “PowerShell split my remote `grep` pipeline and ran part of it locally”
 
 this repo is probably for you.
 
@@ -21,10 +22,11 @@ chcp: 936
 $OutputEncoding: us-ascii
 ```
 
-That creates two common failures:
+That creates common failures:
 
 1. `Get-Content` may read UTF-8 files without BOM as ANSI / GBK.
 2. Piping Chinese text to native programs such as `node`, `python`, `rg`, or `git` may turn it into `??` before the program receives it.
+3. PowerShell may parse remote SSH pipes and operators locally if commands are not quoted safely.
 
 Coding agents hit this often because they read files, search text, pipe scripts, and patch code through the shell all day.
 
@@ -65,8 +67,31 @@ It will:
   - `Add-Content`
   - `Out-File`
   - `Select-String`
+- add a safe SSH helper for remote Bash commands:
+  - `Invoke-RemoteBash`
+  - `rbash`
 
 Open a new PowerShell window after installation.
+
+## Remote command helper
+
+PowerShell may parse pipes and operators before `ssh` receives them.
+
+Avoid:
+
+```powershell
+ssh user@server ps aux | grep node
+ssh user@server cd /app && git pull
+```
+
+After installing, use:
+
+```powershell
+rbash user@server 'ps aux | grep node'
+rbash user@server 'cd /app && git status && git pull'
+```
+
+`rbash` sends the command to remote Bash safely, so `|`, `&&`, `||`, `$`, quotes and redirects do not get eaten by local PowerShell.
 
 ## Recommended long-term fix
 
@@ -83,7 +108,7 @@ PowerShell 7 is UTF-8 by default and avoids most of the Windows PowerShell 5.1 e
 Tell your agent:
 
 ```text
-Read https://github.com/lensnowovo/agent-shell-utf8-fix and follow AGENTS.md to diagnose and fix my Windows PowerShell UTF-8 / Chinese encoding issues.
+Read https://github.com/lensnowovo/agent-shell-utf8-fix and follow AGENTS.md to diagnose and fix my Windows PowerShell UTF-8 / Chinese encoding and remote command quoting issues.
 ```
 
 The agent should read `AGENTS.md` first.
@@ -110,6 +135,8 @@ Your other profile content is left untouched.
 
 这个项目解决的是 Windows PowerShell 5.1 下，AI Coding Agent 操作中文项目时常见的乱码问题。
 
+它也顺手解决一个常见的远程命令坑：在 PowerShell 里执行 SSH 命令时，本地 PowerShell 把远端命令里的 `|`、`&&`、`$()` 等符号提前解析，导致 `grep` 等命令在本地执行。
+
 典型表现：
 
 - `Get-Content README.md` 读出乱码；
@@ -132,3 +159,10 @@ Your other profile content is left untouched.
 ```
 
 然后重新打开 PowerShell。
+
+远端命令建议用：
+
+```powershell
+rbash user@server 'ps aux | grep node'
+rbash user@server 'cd /app && git pull'
+```

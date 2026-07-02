@@ -1,6 +1,8 @@
 # Agent Instructions
 
-This repository teaches coding agents how to diagnose and fix Windows PowerShell UTF-8 / Chinese encoding problems.
+This repository teaches coding agents how to diagnose and fix Windows PowerShell problems that commonly break coding-agent workflows.
+
+The main fix is UTF-8 / Chinese encoding. It also covers one frequent quoting trap: PowerShell parsing remote SSH pipes before the remote shell receives them.
 
 Use these instructions when a user says:
 
@@ -8,10 +10,11 @@ Use these instructions when a user says:
 - `Get-Content` returns mojibake.
 - Chinese text becomes `??` when piped to Node.js, Python, Git, ripgrep, or another native command.
 - Codex / Claude Code / Cursor / GLM keeps working around Chinese by using Unicode escapes.
+- A remote SSH command such as `ps aux | grep node` gets split locally by PowerShell.
 
 ## Goal
 
-Make the user's Windows coding-agent shell safe for UTF-8 project files, especially Chinese text.
+Make the user's Windows coding-agent shell safe for UTF-8 project files, especially Chinese text, and reduce common PowerShell-vs-Bash command quoting failures.
 
 Prefer minimal, reversible changes.
 
@@ -81,10 +84,62 @@ $PSDefaultParameterValues['Add-Content:Encoding'] = 'UTF8'
 $PSDefaultParameterValues['Out-File:Encoding'] = 'UTF8'
 $PSDefaultParameterValues['Select-String:Encoding'] = 'UTF8'
 try { chcp 65001 > $null } catch {}
+
+function Invoke-RemoteBash {
+  param(
+    [Parameter(Mandatory = $true, Position = 0)]
+    [string]$Target,
+
+    [Parameter(Mandatory = $true, Position = 1)]
+    [string]$Command
+  )
+
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Command))
+  ssh $Target "bash -lc 'eval `"`$(printf %s $encoded | base64 -d)`"'"
+}
+
+function rbash {
+  param(
+    [Parameter(Mandatory = $true, Position = 0)]
+    [string]$Target,
+
+    [Parameter(Mandatory = $true, Position = 1)]
+    [string]$Command
+  )
+
+  Invoke-RemoteBash -Target $Target -Command $Command
+}
 # <<< agent shell UTF-8 fix <<<
 ```
 
 Open a new PowerShell session and re-run the tests.
+
+## Remote SSH command quoting
+
+PowerShell is not Bash. If the agent runs remote commands from Windows PowerShell, raw pipes and operators may be parsed locally before `ssh` receives the command.
+
+Avoid:
+
+```powershell
+ssh user@host ps aux | grep node
+ssh user@host cd /app && git pull
+```
+
+Safer options:
+
+```powershell
+ssh user@host 'ps aux | grep node'
+ssh user@host 'bash -lc "cd /app && git pull"'
+```
+
+Preferred after installing this repo:
+
+```powershell
+rbash user@host 'ps aux | grep node'
+rbash user@host 'cd /app && git status && git pull'
+```
+
+`rbash` base64-encodes the remote command locally and decodes it inside remote Bash, so pipes, redirects, `$`, quotes, `&&`, and `||` are not accidentally handled by the local PowerShell parser.
 
 ## Important agent rules
 
@@ -94,6 +149,7 @@ Open a new PowerShell session and re-run the tests.
 - Prefer marked blocks so the change can be removed later.
 - In Windows PowerShell 5.1, use `Get-Content -Encoding UTF8` when reading UTF-8 files before the fix is installed.
 - Avoid Bash heredocs such as `node <<'NODE'` in PowerShell. Use PowerShell here-strings carefully, or write a temporary script file.
+- Do not run unquoted remote SSH pipelines from PowerShell. Prefer `rbash target 'command with | && $()'` after installation.
 - For patching repository files, prefer the agent's file-editing tool rather than `Set-Content` or `Out-File`.
 
 ## Verify

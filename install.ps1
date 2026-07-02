@@ -22,6 +22,37 @@ $PSDefaultParameterValues['Add-Content:Encoding'] = 'UTF8'
 $PSDefaultParameterValues['Out-File:Encoding'] = 'UTF8'
 $PSDefaultParameterValues['Select-String:Encoding'] = 'UTF8'
 try { chcp 65001 > $null } catch {}
+
+# Safe SSH helper for coding agents on Windows PowerShell.
+# Problem: PowerShell parses pipes/redirection/operators before ssh if the
+# remote command is not quoted perfectly, so commands like grep may accidentally
+# run locally. Use:
+#   rbash user@host 'ps aux | grep node'
+#   Invoke-RemoteBash user@host 'cd /app && git status'
+function Invoke-RemoteBash {
+  param(
+    [Parameter(Mandatory = $true, Position = 0)]
+    [string]$Target,
+
+    [Parameter(Mandatory = $true, Position = 1)]
+    [string]$Command
+  )
+
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Command))
+  ssh $Target "bash -lc 'eval `"`$(printf %s $encoded | base64 -d)`"'"
+}
+
+function rbash {
+  param(
+    [Parameter(Mandatory = $true, Position = 0)]
+    [string]$Target,
+
+    [Parameter(Mandatory = $true, Position = 1)]
+    [string]$Command
+  )
+
+  Invoke-RemoteBash -Target $Target -Command $Command
+}
 # <<< agent shell UTF-8 fix <<<
 '@
 

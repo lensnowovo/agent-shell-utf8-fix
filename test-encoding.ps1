@@ -59,5 +59,8 @@ process.stdin.on('end', () => {
   Write-Host "[SKIP] Pipe Chinese to Node.js - node not found"
 }
 
+$remoteHelper = Get-Command rbash -ErrorAction SilentlyContinue
+Write-Result "Remote Bash helper" ($null -ne $remoteHelper) $(if ($remoteHelper) { "rbash available" } else { "rbash not found; run .\install.ps1 and open a new shell" })
+
 Write-Host ""
 Write-Host "If any item failed, run .\install.ps1 and open a new PowerShell window."
